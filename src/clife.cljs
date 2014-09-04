@@ -1,4 +1,4 @@
-(ns clife)
+(ns clife (:require [clife.render :as render][clife.rle :as rle]))
 
 ; some predefined interesting patterns
 (def blinker #{[1 0] [1 1] [1 2]})
@@ -7,40 +7,93 @@
 (def acorn #{[0 2] [1 0] [1 2] [3 1] [4 2] [5 2] [6 2]})
 (def lightweight-spaceship #{[0 1] [0 2] [0 3] [1 0] [1 3] [2 3] [3 3] [4 0] [4 2]})
 
-(def color-alive "#b0b0b0")
-(def color-dead "#202020")
-
 (defn pp
   "print and pass the parameter"
   [v]
   (.log js/console (clj->js v))
   v)
 
-(defn render-cell
-  "render a single cell, dead or alive, on a world"
-  [world [x y] alive?]
-  ;todo 2
-  )
+(def gState (atom #{}))
 
-(defn render-world
-  "render a complete world with a set of alive cells"
-  [world cells]
-  (pp world)
-  ;todo 1
+(defn neigb [[x y]]
+  [
+    [(- x 1) (- y 1)]
+    [(- x 1) (+ y 0)]
+    [(- x 1) (+ y 1)]
+    [(+ x 0) (- y 1)]
+    [(+ x 0) (+ y 1)]
+    [(+ x 1) (- y 1)]
+    [(+ x 1) (+ y 0)]
+    [(+ x 1) (+ y 1)]
+  ]
   )
 
 (defn shift
   "return cells shifted by dx and dy"
   [cells dx dy]
-  ;todo 3
-  cells)
+
+  (map (fn [[x y]] [(+ x dx) (+ y dy)]) cells)
+  )
+
+(defn step [cells]
+  (let [isalive (fn [cell] (contains? cells cell))]
+    (filter (fn [c]
+        (if (isalive c)
+          (case (count (filter isalive (neigb c)))
+            2 true
+            3 true
+            false
+          )
+          (case (count (filter isalive (neigb c)))
+            3 true
+            false
+          )
+        )
+      )
+      (into cells (flatmap neigb cells))
+    )
+  )
+)
+
+(defn game-step [{:keys [canvas ctx rows cols cell-size] :as world }]
+   (let [next-cells (step (set @gState))]
+      (set! (.-fillStyle ctx) "black")
+      (.fillRect ctx 0 0 (* cols cell-size) (* rows cell-size) )
+      (render/world world next-cells)
+      (reset! gState next-cells)
+      (js/setTimeout #(game-step world) 16)
+     ))
+
+
+
+(defn load-pattern []
+  (let [
+      slct (.getElementById js/document "selector")
+      get-size (fn [pat]
+                 (let [
+                    minx (apply min (map first pat))
+                    miny (apply min (map second pat))
+                    maxx (apply max (map first pat))
+                    maxy (apply max (map second pat))
+                  ]
+                  [(- maxx minx) (- maxy miny)]
+                  )
+               )
+      ]
+    (clife.rle/fetch (.-value slct)
+      (fn [s]
+        (let [ [x y] (get-size s) ]
+          (pp x)
+          (pp y)
+          (reset! gState (shift s (/ x 2) (/ y 2))))))
+))
 
 (defn ^:export hop
   "Entry point"
   []
-  (let [cols 30
-        rows 30
-        cell-size 20
+  (let [cols 250
+        rows 150
+        cell-size 4
         canvas (.getElementById js/document "world")
         ctx (.getContext canvas "2d")
         world {:canvas canvas
@@ -48,5 +101,13 @@
                :rows rows
                :cols cols
                :cell-size cell-size}
-        cells (shift glider 50 30)]
-    (render-world world cells)))
+        cells (shift r-pentomino 125 75)
+        slct (.getElementById js/document "selector")
+       ]
+    (set! (.-width canvas) (* cols cell-size))
+    (set! (.-height canvas) (* rows cell-size))
+
+    (.addEventListener slct "change" load-pattern)
+
+    (game-step world)
+    ))
