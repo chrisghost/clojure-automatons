@@ -1,7 +1,7 @@
 (ns clife.render)
 
 (def color-alive "#b0b0b0")
-(def color-dead "#202020")
+(def color-dead "red")
 (def colors-alive ["red" "green" "blue" "purple" "white"])
 
 (defn cell
@@ -19,8 +19,11 @@
 
 (defn world
   "render a complete world with a set of alive cells"
-  [{:keys [canvas ctx rows cols cell-size] :as world } cells]
-  ;(pp cells)
-  (doseq [cel cells] (cell world cel true))
+  [{:keys [canvas ctx rows cols cell-size ant-pos step] :as world } cells]
+  (let [counter (.getElementById js/document "counter")]
+    (set! (. counter -innerHTML) step)
+    (doseq [cel cells] (cell world cel true))
+    (cell world ant-pos false)
+    )
 )
 

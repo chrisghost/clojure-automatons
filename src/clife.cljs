@@ -1,113 +1,94 @@
 (ns clife (:require [clife.render :as render][clife.rle :as rle]))
 
-; some predefined interesting patterns
-(def blinker #{[1 0] [1 1] [1 2]})
-(def glider #{[1 0] [2 1] [0 2] [1 2] [2 2]})
-(def r-pentomino #{[0 1] [1 0] [1 1] [1 2] [2 0]})
-(def acorn #{[0 2] [1 0] [1 2] [3 1] [4 2] [5 2] [6 2]})
-(def lightweight-spaceship #{[0 1] [0 2] [0 3] [1 0] [1 3] [2 3] [3 3] [4 0] [4 2]})
-
 (defn pp
   "print and pass the parameter"
   [v]
   (.log js/console (clj->js v))
   v)
 
-(def gState (atom #{}))
-
-(defn neigb [[x y]]
-  [
-    [(- x 1) (- y 1)]
-    [(- x 1) (+ y 0)]
-    [(- x 1) (+ y 1)]
-    [(+ x 0) (- y 1)]
-    [(+ x 0) (+ y 1)]
-    [(+ x 1) (- y 1)]
-    [(+ x 1) (+ y 0)]
-    [(+ x 1) (+ y 1)]
-  ]
+(defn get-cell [pos cells]
+  (contains? (set cells) pos)
   )
 
-(defn shift
-  "return cells shifted by dx and dy"
-  [cells dx dy]
+(defn turn-left [dir]
+  (cond
+    (= dir "up") "left"
+    (= dir "down") "right"
+    (= dir "left") "down"
+    :else "up"
+  ))
 
-  (map (fn [[x y]] [(+ x dx) (+ y dy)]) cells)
-  )
+(defn turn-right [dir]
+  (cond
+    (= dir "up") "right"
+    (= dir "down") "left"
+    (= dir "left") "up"
+    :else "down"
+  ))
 
-(defn step [cells]
-  (let [isalive (fn [cell] (contains? cells cell))]
-    (filter (fn [c]
-        (if (isalive c)
-          (case (count (filter isalive (neigb c)))
-            2 true
-            3 true
-            false
-          )
-          (case (count (filter isalive (neigb c)))
-            3 true
-            false
-          )
-        )
+(defn next-cell [[x y] dir]
+  (cond
+    (= dir "up") [x (- y 1)]
+    (= dir "down") [x (+ y 1)]
+    (= dir "left") [(- x 1) y]
+    :else [(+ x 1) y]
+  ))
+
+(defn langton-step [{:keys [canvas ctx rows cols cell-size ant-pos ant-dir cells] :as world }]
+  (let
+    [ next-dir  (if (get-cell ant-pos cells)
+                  (turn-right ant-dir)
+                  (turn-left ant-dir))
+     ;_ (pp next-dir)
+     ncell      (next-cell ant-pos next-dir)
+     ;_ (pp ant-pos)
+     ;_ (pp ncell)
+     ]
+    (if (get-cell ncell cells)
+      [next-dir (filter #(not= % ncell) cells)]
+      [next-dir (conj cells ncell)]
       )
-      (into cells (flatmap neigb cells))
     )
   )
-)
 
-(defn game-step [{:keys [canvas ctx rows cols cell-size] :as world }]
-   (let [next-cells (step (set @gState))]
+(defn langton [{:keys [canvas ctx rows cols cell-size ant-pos ant-dir cells step] :as world }]
+   (let [[ndir next-cells] (langton-step world)
+         npos (next-cell ant-pos ndir)
+         nstep (+ step 1)
+         nworld (merge world {:cells next-cells :ant-pos npos :ant-dir ndir :step nstep})
+         ]
       (set! (.-fillStyle ctx) "black")
       (.fillRect ctx 0 0 (* cols cell-size) (* rows cell-size) )
-      (render/world world next-cells)
-      (reset! gState next-cells)
-      (js/setTimeout #(game-step world) 16)
+
+      ;(pp ndir)
+      ;(pp next-cells)
+      (render/world nworld next-cells)
+      ;(reset! gState next-cells)
+      ;(pp ant-pos)
+      (js/setTimeout #(langton nworld) 1)
      ))
-
-
-
-(defn load-pattern []
-  (let [
-      slct (.getElementById js/document "selector")
-      get-size (fn [pat]
-                 (let [
-                    minx (apply min (map first pat))
-                    miny (apply min (map second pat))
-                    maxx (apply max (map first pat))
-                    maxy (apply max (map second pat))
-                  ]
-                  [(- maxx minx) (- maxy miny)]
-                  )
-               )
-      ]
-    (clife.rle/fetch (.-value slct)
-      (fn [s]
-        (let [ [x y] (get-size s) ]
-          (pp x)
-          (pp y)
-          (reset! gState (shift s (/ x 2) (/ y 2))))))
-))
 
 (defn ^:export hop
   "Entry point"
   []
   (let [cols 250
-        rows 150
-        cell-size 4
+        rows 250
+        cell-size 2
         canvas (.getElementById js/document "world")
         ctx (.getContext canvas "2d")
         world {:canvas canvas
                :ctx ctx
                :rows rows
                :cols cols
-               :cell-size cell-size}
-        cells (shift r-pentomino 125 75)
-        slct (.getElementById js/document "selector")
+               :cell-size cell-size
+               :ant-pos [ (/ cols 2) (/ rows 2) ]
+               :ant-dir "up"
+               :cells #{ [ (/ cols 2) (/ rows 2) ]}
+               :step 0
+               }
        ]
     (set! (.-width canvas) (* cols cell-size))
     (set! (.-height canvas) (* rows cell-size))
 
-    (.addEventListener slct "change" load-pattern)
-
-    (game-step world)
+    (langton world)
     ))
